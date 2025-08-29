@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { loadModels, getDescriptorFromVideo } from "../lib/face";
+import * as faceapi from "../lib/face"; // your face.js
 import Camera from "../components/Camera";
 
 const API = import.meta.env.VITE_API_URL;
-//const VALIDATOR_API = "http://localhost:8001"; // FastAPI face validator
 const VALIDATOR_API = "https://face-detection-clok.onrender.com";
 
 export default function Enroll() {
-  const [loaded, setLoaded] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
   const [name, setName] = useState("");
   const [roll, setRoll] = useState("");
-  const [batch, setStudentClass] = useState("");  // NEW
-  const [section, setSection] = useState("");            // NEW
+  const [batch, setStudentClass] = useState("");
+  const [section, setSection] = useState("");
   const [status, setStatus] = useState("");
   const [cameraOn, setCameraOn] = useState(false);
   const [previewImg, setPreviewImg] = useState(null);
@@ -20,15 +19,26 @@ export default function Enroll() {
   const videoRef = useRef(null);
   const captureTimer = useRef(null);
 
-  // load face-api models once
+  // Load face-api models once
   useEffect(() => {
     (async () => {
-      await loadModels();
-      setLoaded(true);
+      try {
+        await faceapi.loadModels();
+        setModelsLoaded(true);
+        setStatus("✅ Models loaded.");
+      } catch (err) {
+        console.error(err);
+        setStatus("❌ Failed to load models.");
+      }
     })();
   }, []);
 
+  // Enable camera only after models loaded and inputs filled
   function enableCamera() {
+    if (!modelsLoaded) {
+      setStatus("⏳ Wait for models to load.");
+      return;
+    }
     if (!name || !roll || !batch || !section) {
       setStatus("❌ Enter all details before enabling camera.");
       return;
@@ -37,64 +47,72 @@ export default function Enroll() {
     setStatus("📷 Camera enabled. Align face in frame.");
   }
 
-  // Watch face until valid capture
+  // Auto capture face
   useEffect(() => {
     if (!cameraOn || !videoRef.current) return;
 
     captureTimer.current = setInterval(async () => {
-      const det = await getDescriptorFromVideo(videoRef.current);
-      if (!det) return; // no face yet
+      const video = videoRef.current;
+      if (!video || video.readyState !== 4) return;
 
-      if (
-        det.landmarks &&
-        det.landmarks.getLeftEye().length > 0 &&
-        det.landmarks.getRightEye().length > 0
-      ) {
-        const video = videoRef.current;
-        if (!video || video.readyState !== 4) return;
+      try {
+        const det = await faceapi.getDescriptorFromVideo(video);
+        if (!det) return;
 
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageUrl = canvas.toDataURL("image/png");
+        if (
+          det.landmarks &&
+          det.landmarks.getLeftEye().length > 0 &&
+          det.landmarks.getRightEye().length > 0
+        ) {
+          // Capture image
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageUrl = canvas.toDataURL("image/png");
 
-        setPreviewImg(imageUrl);
-        setPendingEmbedding(det.descriptor);
-        setCameraOn(false);
-        setStatus("✅ Face captured. Validating...");
-        clearInterval(captureTimer.current);
+          setPreviewImg(imageUrl);
+          setPendingEmbedding(det.descriptor);
+          setCameraOn(false);
+          setStatus("✅ Face captured. Validating...");
+          clearInterval(captureTimer.current);
 
-        try {
-          const res = await fetch(`${VALIDATOR_API}/validate-base64`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: imageUrl }),
-          });
-          const data = await res.json();
-          if (!res.ok || !data.ok) {
-            setStatus("❌ Validation failed: " + (data.reasons?.join("; ") || "Unknown"));
+          // Validate with backend
+          try {
+            const res = await fetch(`${VALIDATOR_API}/validate-base64`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ image: imageUrl }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+              setStatus(
+                "❌ Validation failed: " + (data.reasons?.join("; ") || "Unknown")
+              );
+              setPreviewImg(null);
+              setPendingEmbedding(null);
+              setCameraOn(true);
+            } else {
+              setStatus("✅ Face validated. Review before submitting.");
+            }
+          } catch (err) {
+            console.error(err);
+            setStatus("❌ Error validating face");
             setPreviewImg(null);
             setPendingEmbedding(null);
             setCameraOn(true);
-          } else {
-            
-            setStatus("✅ Face validated. Review before submitting.");
           }
-        } catch (err) {
-          console.error(err);
-          setStatus("❌ Error validating face");
-          setPreviewImg(null);
-          setPendingEmbedding(null);
-          setCameraOn(true);
         }
+      } catch (err) {
+        console.error(err);
       }
     }, 1000);
 
     return () => clearInterval(captureTimer.current);
   }, [cameraOn]);
 
+  // Submit enrollment
   async function submitEnrollment() {
     setCameraOn(false);
     if (!pendingEmbedding) {
@@ -109,20 +127,20 @@ export default function Enroll() {
         body: JSON.stringify({
           roll,
           name,
-          batch: batch,  // NEW
-          section,              // NEW
-          embedding: pendingEmbedding
+          batch,
+          section,
+          embedding: pendingEmbedding,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         setStatus("❌ " + data.error);
       } else {
-        if (data.duplicate) {
-          setStatus("⚠️ " + data.message);
-        } else {
-          setStatus("✅ " + data.message);
-        }
+        setStatus(
+          data.duplicate
+            ? "⚠️ " + data.message
+            : "✅ " + data.message
+        );
         setPreviewImg(null);
         setPendingEmbedding(null);
       }
@@ -137,7 +155,7 @@ export default function Enroll() {
       <div className="w-full max-w-lg bg-white/10 backdrop-blur-md p-8 rounded-2xl shadow-lg border border-white/20">
         <h2 className="text-3xl font-bold text-center mb-6">📝 Enroll Student</h2>
 
-        {!loaded && <p className="text-gray-400 text-center">Loading models…</p>}
+        {!modelsLoaded && <p className="text-gray-400 text-center">Loading models…</p>}
 
         <div className="space-y-4">
           <div>
@@ -182,7 +200,7 @@ export default function Enroll() {
         {!cameraOn && !previewImg && (
           <button
             onClick={enableCamera}
-            disabled={!name || !roll || !batch || !section}
+            disabled={!modelsLoaded || !name || !roll || !batch || !section}
             className="mt-6 w-full px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 rounded-lg transition font-semibold"
           >
             Enable Camera
