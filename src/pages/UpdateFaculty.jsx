@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pencil, UserPlus, Plus, Trash2 } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL;
 
 export default function AdminFaculty() {
   const [faculties, setFaculties] = useState([]);
@@ -240,3 +240,4 @@ export default function AdminFaculty() {
     </div>
   );
 }
+
