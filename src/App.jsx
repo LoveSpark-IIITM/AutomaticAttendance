@@ -8,6 +8,7 @@ import Login from "./pages/Login.jsx";
 import FacultyDashboard from "./pages/FacultyDashboard.jsx";
 import TakeAttendance from "./pages/TakeAttendance.jsx";
 import AttendanceList from "./pages/AttendanceList.jsx";
+import UpdateFaculty from "./pages/UpdateFaculty.jsx"
 import { useEffect, useState } from "react";
 
 function Layout({ children }) {
@@ -70,6 +71,11 @@ function App() {
     <Layout>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/admin/update" element={
+          <PrivateRoute>
+              <UpdateFaculty />
+            </PrivateRoute>
+        }/>
         <Route path="/faculty/dashboard" element={
           <FacultyRoute>
             <FacultyDashboard />
