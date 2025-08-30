@@ -21,7 +21,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="#"
+          to="/admin/update"
           className="p-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 shadow-lg hover:scale-105 transition transform duration-300 hover:bg-green-600/30"
         >
           <h2 className="text-xl font-semibold mb-2">✅ Add/Update Faculty</h2>
